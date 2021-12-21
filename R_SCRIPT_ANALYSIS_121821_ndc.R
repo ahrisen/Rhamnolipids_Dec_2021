@@ -1,0 +1,638 @@
+library(readxl)
+library(ggplot2)
+library(emmeans)
+library(dplyr)
+library(car)
+library(viridis)
+library(tidyr)
+library(reshape2)
+
+setwd("C:/Users/cruzn/OneDrive/Documents/LIPID_THERAPY_KELLAR_121721")
+raw.data <- read_excel("20211206_Scratch Assay.xlsx", sheet = 1) %>%
+  filter(!is.na(TX)) 
+raw.data$TX <- factor(raw.data$TX, levels = c("Control", "0.1 UN",
+                                              "1.0 UN", "10 UN",
+                                              "0.1 UN/6.25 R", "1.0 UN/6.25 R",
+                                              "10 UN/6.25 R", "6.25 R",
+                                              "50 R", "0.1 UN/50 R",
+                                              "1.0 UN/50 R", "10 UN/50 R"))
+head(raw.data)
+
+ggplot(data = raw.data, mapping = aes(x = Time_Point, y = Percent_Closed)) +
+  geom_point(aes(color = TX))
+
+m1 <- lm(Percent_Closed ~ TX + Time_Point, data = raw.data)
+anova(m1)
+plot(m1, which = 1)
+AIC(m1)
+
+m2 <- lm(Percent_Closed ~ TX*Time_Point, data = raw.data)
+anova(m2)
+summary(m2)
+plot(m2, which = 1)
+plot(cooks.distance(m2))
+AIC(m2)
+anova(m1, m2)
+confint(m2)
+
+##
+##
+#
+##
+##
+#can we improve?
+m3 <- lm(Percent_Closed ~ TX*log(Time_Point), data = raw.data)
+anova(m3)
+summary(m3)
+plot(m3, which = 1)
+#it's improved but not by a tremendous amount. So let's stick with a simple 
+#non-transformed interactive model
+
+
+#####
+#####
+#####
+#####
+emmeans(m2,  pairwise ~ TX, 
+                at = list(Time_Point = 12))$contrasts
+confint(emmeans(m2,  pairwise ~ TX, 
+                at = list(Time_Point = 12))$contrasts)
+emmeans(m2,  pairwise ~ TX, 
+        at = list(Time_Point = 24))$contrasts
+#####
+#####
+#####
+#####
+predict.scratch <- data.frame(
+  predict(m2, interval = 'confidence')
+)
+
+scratch.data <- raw.data %>%
+  mutate(
+    fit = predict.scratch$fit,
+    upr = predict.scratch$upr,
+    lwr = predict.scratch$lwr
+  )
+
+#error bar calcs for future use repetitive use
+stats.PC <- scratch.data %>% 
+  group_by(TX, Time_Point) %>%
+  summarise(
+    means = mean(Percent_Closed),
+    stderr = sd(Percent_Closed)/sqrt(n()),
+    s.d. = sd(Percent_Closed)) %>%
+  mutate(
+    lwr.err = means - stderr,
+    upr.err = means + stderr,
+    standard.deviation = s.d.)
+
+ggplot(scratch.data, aes(x = Time_Point)) +
+  theme_bw() +
+  geom_point(aes(y = Percent_Closed, color = TX), size = 3) +
+  geom_line(aes(y = fit, color = TX), size = 1) +
+  scale_y_continuous(breaks = seq(0, 100, by = 10)) +
+  scale_x_continuous(breaks = seq(12, 24, by = 12)) +
+  labs(title = "Cellular Percent Closure Delay and Recovery") +
+  labs(y = "Percent Closure") +
+  labs(x = "Hours Post-scratch") +
+  theme(plot.title = element_text(size = 16, face = "bold")) +
+  theme(axis.title.y = element_text(size = 14, face = "bold")) +
+  theme(axis.title.x = element_text(size = 14, face = "bold")) +
+  theme(axis.text.x = element_text(size = 12, color = "black")) +
+  theme(axis.text.y = element_text(size = 12, color = "black"))
+
+####
+####
+#SEPERATING INTO GROUPS FOR PALATABLE DIGESTION OF MAIN INTERESTS
+#i.e., UN with and without therapeutic
+####
+####
+
+#0.1 UN & 0.1UN/6.25 R
+data0.1UN <- scratch.data %>%
+  filter(TX == "0.1 UN")
+
+data0.1UN_6.25R <- scratch.data %>%
+  filter(TX == "0.1 UN/6.25 R")
+
+d1 <- rbind(data0.1UN, data0.1UN_6.25R)
+
+stats1 <- d1 %>% 
+  group_by(TX, Time_Point) %>%
+  summarise(
+    means = mean(Percent_Closed),
+    stderr = sd(Percent_Closed)/sqrt(n())) %>%
+  mutate(
+    lwr.err = means - stderr,
+    upr.err = means + stderr)
+
+ggplot(d1, aes(x = Time_Point)) +
+  theme_bw() +
+  geom_point(aes(y = Percent_Closed, color = TX), size = 3, alpha = 0.25,
+             position = position_dodge(width = 1)) +
+  geom_line(aes(y = fit, color = TX), size = 1) +
+  geom_errorbar(data = stats1, aes(ymin=lwr.err, ymax=upr.err, color = TX), 
+                width=0.75, position = position_dodge(width = 1), 
+                show.legend = F, size = 0.75) +
+  geom_point(data = stats1, aes(y = means, color = TX), size = 5, 
+             position =position_dodge(width = 1), 
+             show.legend = T) +
+   scale_y_continuous(breaks = seq(0, 100, by = 10)) +
+  scale_x_continuous(breaks = seq(12, 24, by = 12)) +
+  labs(y = "Percent Closure") +
+  labs(x = "Hours Post-scratch") +
+  theme(plot.title = element_text(size = 28, face = "bold")) +
+  theme(axis.title.y = element_text(size = 22, face = "bold")) +
+  theme(axis.title.x = element_text(size = 22, face = "bold")) +
+  theme(axis.text.x = element_text(size = 20, color = "black")) +
+  theme(axis.text.y = element_text(size = 20, color = "black")) + 
+  theme(legend.text=element_text(size=18),
+        legend.title = element_text(size = 22, face = "bold")) +
+  theme(legend.justification = c(1, 0), legend.position = c(1, 0)) +
+  annotate("text",
+           x = 12,
+           y = 85,
+           label = "N.S.", size = 7, fontface = 2) +
+  annotate("text",
+           x = 24,
+           y = 102,
+           label = "N.S.", size = 7, fontface = 2) +
+  scale_colour_grey(start = 0, end = 0.5)
+  
+
+
+#1.0 UN & 1.0 UN/6.25 R
+data1.0UN <- scratch.data %>%
+  filter(TX == "1.0 UN")
+data1.0UN_6.25R <- scratch.data %>%
+  filter(TX == "1.0 UN/6.25 R")
+
+d2 <- rbind(data1.0UN, data1.0UN_6.25R)
+
+stats2 <- d2 %>% 
+  group_by(TX, Time_Point) %>%
+  summarise(
+    means = mean(Percent_Closed),
+    stderr = sd(Percent_Closed)/sqrt(n())) %>%
+  mutate(
+    lwr.err = means - stderr,
+    upr.err = means + stderr)
+
+ggplot(d2, aes(x = Time_Point)) +
+  theme_bw() +
+  geom_point(aes(y = Percent_Closed, color = TX), size = 3, alpha = 0.25,
+             position = position_dodge(width = 1)) +
+  geom_line(aes(y = fit, color = TX), size = 1) +
+  geom_errorbar(data = stats2, aes(ymin=lwr.err, ymax=upr.err, color = TX), 
+                width=0.75, position = position_dodge(width = 1), 
+                show.legend = F, size = 0.75) +
+  geom_point(data = stats2, aes(y = means, color = TX), size = 5, 
+             position =position_dodge(width = 1), 
+             show.legend = T) +
+  scale_y_continuous(breaks = seq(0, 100, by = 10)) +
+  scale_x_continuous(breaks = seq(12, 24, by = 12)) +
+  labs(y = "Percent Closure") +
+  labs(x = "Hours Post-scratch") +
+  theme(plot.title = element_text(size = 28, face = "bold")) +
+  theme(axis.title.y = element_text(size = 22, face = "bold")) +
+  theme(axis.title.x = element_text(size = 22, face = "bold")) +
+  theme(axis.text.x = element_text(size = 20, color = "black")) +
+  theme(axis.text.y = element_text(size = 20, color = "black")) + 
+  theme(legend.text=element_text(size=18),
+        legend.title = element_text(size = 22, face = "bold")) +
+  theme(legend.justification = c(1, 0), legend.position = c(1, 0)) +
+  annotate("text",
+           x = 12,
+           y = 75,
+           label = "*", size = 12, fontface = 2) +
+  annotate("text",
+           x = 24,
+           y = 103,
+           label = "N.S.", size = 7, fontface = 2)  +
+  scale_colour_grey(start = 0, end = 0.5) 
+
+#10 UN & 10 UN/6.25 R
+data10UN <- scratch.data %>%
+  filter(TX == "10 UN")
+data10UN_6.25R <- scratch.data %>%
+  filter(TX == "10 UN/6.25 R")
+
+d3 <- rbind(data10UN, data10UN_6.25R)
+
+stats3 <- d3 %>% 
+  group_by(TX, Time_Point) %>%
+  summarise(
+    means = mean(Percent_Closed),
+    stderr = sd(Percent_Closed)/sqrt(n())) %>%
+  mutate(
+    lwr.err = means - stderr,
+    upr.err = means + stderr)
+
+ggplot(d3, aes(x = Time_Point)) +
+  theme_bw() +
+  geom_point(aes(y = Percent_Closed, color = TX), size = 3, alpha = 0.25,
+             position = position_dodge(width = 1)) +
+  geom_line(aes(y = fit, color = TX), size = 1) +
+  geom_errorbar(data = stats3, aes(ymin=lwr.err, ymax=upr.err, color = TX), 
+                width=0.75, position = position_dodge(width = 1), 
+                show.legend = F, size = 0.75) +
+  geom_point(data = stats3, aes(y = means, color = TX), size = 5, 
+             position =position_dodge(width = 1), 
+             show.legend = T) +
+  scale_y_continuous(breaks = seq(0, 100, by = 10)) +
+  scale_x_continuous(breaks = seq(12, 24, by = 12)) +
+  labs(y = "Percent Closure") +
+  labs(x = "Hours Post-scratch") +
+  theme(plot.title = element_text(size = 28, face = "bold")) +
+  theme(axis.title.y = element_text(size = 22, face = "bold")) +
+  theme(axis.title.x = element_text(size = 22, face = "bold")) +
+  theme(axis.text.x = element_text(size = 20, color = "black")) +
+  theme(axis.text.y = element_text(size = 20, color = "black")) + 
+  theme(legend.text=element_text(size=18),
+        legend.title = element_text(size = 22, face = "bold")) +
+  theme(legend.justification = c(1, 0), legend.position = c(1, 0)) +
+  annotate("text",
+           x = 12,
+           y = 85,
+           label = "N.S.", size = 7, fontface = 2) +
+  annotate("text",
+           x = 24,
+           y = 103,
+           label = "N.S.", size = 7, fontface = 2)  +
+  scale_colour_grey(start = 0, end = 0.5)
+
+#0.1 UN & 0.1UN/50 R
+data0.1UN <- scratch.data %>%
+  filter(TX == "0.1 UN")
+data0.1UN_50R <- scratch.data %>%
+  filter(TX == "0.1 UN/50 R")
+
+d4 <- rbind(data0.1UN, data0.1UN_50R)
+
+stats4 <- d4 %>% 
+  group_by(TX, Time_Point) %>%
+  summarise(
+    means = mean(Percent_Closed),
+    stderr = sd(Percent_Closed)/sqrt(n())) %>%
+  mutate(
+    lwr.err = means - stderr,
+    upr.err = means + stderr)
+
+ggplot(d4, aes(x = Time_Point)) +
+  theme_bw() +
+  geom_point(aes(y = Percent_Closed, color = TX), size = 3, alpha = 0.25,
+             position = position_dodge(width = 1)) +
+  geom_line(aes(y = fit, color = TX), size = 1) +
+  geom_errorbar(data = stats4, aes(ymin=lwr.err, ymax=upr.err, color = TX), 
+                width=0.75, position = position_dodge(width = 1), 
+                show.legend = F, size = 0.75) +
+  geom_point(data = stats4, aes(y = means, color = TX), size = 5, 
+             position =position_dodge(width = 1), 
+             show.legend = T) +
+  scale_y_continuous(breaks = seq(0, 100, by = 10)) +
+  scale_x_continuous(breaks = seq(12, 24, by = 12)) +
+  labs(y = "Percent Closure") +
+  labs(x = "Hours Post-scratch") +
+  theme(plot.title = element_text(size = 28, face = "bold")) +
+  theme(axis.title.y = element_text(size = 22, face = "bold")) +
+  theme(axis.title.x = element_text(size = 22, face = "bold")) +
+  theme(axis.text.x = element_text(size = 20, color = "black")) +
+  theme(axis.text.y = element_text(size = 20, color = "black")) + 
+  theme(legend.text=element_text(size=18),
+        legend.title = element_text(size = 22, face = "bold")) +
+  theme(legend.justification = c(1, 0), legend.position = c(1, 0)) +
+  annotate("text",
+           x = 12,
+           y = 102,
+           label = "*", size = 12, fontface = 2) +
+  annotate("text",
+           x = 24,
+           y = 103,
+           label = "N.S.", size = 7, fontface = 2)  +
+  scale_colour_grey(start = 0, end = 0.5)
+
+#1.0 UN & 1.0UN/50 R
+data1.0UN <- scratch.data %>%
+  filter(TX == "1.0 UN")
+data1.0UN_50R <- scratch.data %>%
+  filter(TX == "1.0 UN/50 R")
+
+d5 <- rbind(data1.0UN, data1.0UN_50R)
+
+stats5 <- d5 %>% 
+  group_by(TX, Time_Point) %>%
+  summarise(
+    means = mean(Percent_Closed),
+    stderr = sd(Percent_Closed)/sqrt(n())) %>%
+  mutate(
+    lwr.err = means - stderr,
+    upr.err = means + stderr)
+
+ggplot(d5, aes(x = Time_Point)) +
+  theme_bw() +
+  geom_point(aes(y = Percent_Closed, color = TX), size = 3, alpha = 0.25,
+             position = position_dodge(width = 1)) +
+  geom_line(aes(y = fit, color = TX), size = 1) +
+  geom_errorbar(data = stats5, aes(ymin=lwr.err, ymax=upr.err, color = TX), 
+                width=0.75, position = position_dodge(width = 1), 
+                show.legend = F, size = 0.75) +
+  geom_point(data = stats5, aes(y = means, color = TX), size = 5, 
+             position =position_dodge(width = 1), 
+             show.legend = T) +
+  scale_y_continuous(breaks = seq(0, 100, by = 10)) +
+  scale_x_continuous(breaks = seq(12, 24, by = 12)) +
+  labs(y = "Percent Closure") +
+  labs(x = "Hours Post-scratch") +
+  theme(plot.title = element_text(size = 28, face = "bold")) +
+  theme(axis.title.y = element_text(size = 22, face = "bold")) +
+  theme(axis.title.x = element_text(size = 22, face = "bold")) +
+  theme(axis.text.x = element_text(size = 20, color = "black")) +
+  theme(axis.text.y = element_text(size = 20, color = "black")) + 
+  theme(legend.text=element_text(size=18),
+        legend.title = element_text(size = 22, face = "bold")) +
+  theme(legend.justification = c(1, 0), legend.position = c(1, 0)) +
+  annotate("text",
+           x = 12,
+           y = 102,
+           label = "*", size = 12, fontface = 2) +
+  annotate("text",
+           x = 24,
+           y = 103,
+           label = "N.S.", size = 7, fontface = 2)  +
+  scale_colour_grey(start = 0, end = 0.5)
+
+#10 UN & 10UN/50 R
+data10UN <- scratch.data %>%
+  filter(TX == "10 UN")
+data10UN_50R <- scratch.data %>%
+  filter(TX == "10 UN/50 R")
+
+d6 <- rbind(data10UN, data10UN_50R)
+
+stats6 <- d6 %>% 
+  group_by(TX, Time_Point) %>%
+  summarise(
+    means = mean(Percent_Closed),
+    stderr = sd(Percent_Closed)/sqrt(n())) %>%
+  mutate(
+    lwr.err = means - stderr,
+    upr.err = means + stderr)
+
+ggplot(d6, aes(x = Time_Point)) +
+  theme_bw() +
+  geom_point(aes(y = Percent_Closed, color = TX), size = 3, alpha = 0.25,
+             position = position_dodge(width = 1)) +
+  geom_line(aes(y = fit, color = TX), size = 1) +
+  geom_errorbar(data = stats6, aes(ymin=lwr.err, ymax=upr.err, color = TX), 
+                width=0.75, position = position_dodge(width = 1), 
+                show.legend = F, size = 0.75) +
+  geom_point(data = stats6, aes(y = means, color = TX), size = 5, 
+             position =position_dodge(width = 1), 
+             show.legend = T) +
+  scale_y_continuous(breaks = seq(0, 100, by = 10)) +
+  scale_x_continuous(breaks = seq(12, 24, by = 12)) +
+  labs(y = "Percent Closure") +
+  labs(x = "Hours Post-scratch") +
+  theme(plot.title = element_text(size = 28, face = "bold")) +
+  theme(axis.title.y = element_text(size = 22, face = "bold")) +
+  theme(axis.title.x = element_text(size = 22, face = "bold")) +
+  theme(axis.text.x = element_text(size = 20, color = "black")) +
+  theme(axis.text.y = element_text(size = 20, color = "black")) + 
+  theme(legend.text=element_text(size=18),
+        legend.title = element_text(size = 22, face = "bold")) +
+  theme(legend.justification = c(1, 0), legend.position = c(1, 0)) +
+  annotate("text",
+           x = 12,
+           y = 102,
+           label = "*", size = 12, fontface = 2) +
+  annotate("text",
+           x = 24,
+           y = 103,
+           label = "N.S.", size = 7, fontface = 2)  +
+  scale_colour_grey(start = 0, end = 0.5)
+
+#ctrl, 0.1 UN, 1.0 UN, and 10 UN
+data.ctrl <- scratch.data %>%
+  filter(TX == "Control")
+data0.1UN <- scratch.data %>%
+  filter(TX == "0.1 UN")
+data1.0UN <- scratch.data %>%
+  filter(TX == "1.0 UN")
+data10UN <- scratch.data %>%
+  filter(TX == "10 UN")
+
+d7 <- rbind(data.ctrl, data0.1UN, data1.0UN, data10UN)
+
+stats7 <- d7 %>% 
+  group_by(TX, Time_Point) %>%
+  summarise(
+    means = mean(Percent_Closed),
+    stderr = sd(Percent_Closed)/sqrt(n())) %>%
+  mutate(
+    lwr.err = means - stderr,
+    upr.err = means + stderr)
+
+ggplot(d7, aes(x = Time_Point)) +
+  theme_bw() +
+  geom_point(aes(y = Percent_Closed, color = TX), size = 3, alpha = 0.25,
+             position = position_dodge(width = 2)) +
+  geom_line(aes(y = fit, color = TX), size = 1) +
+  geom_errorbar(data = stats7, aes(ymin=lwr.err, ymax=upr.err, color = TX), 
+                width=0.75, position = position_dodge(width = 2), 
+                show.legend = F, size = 0.75) +
+  geom_point(data = stats7, aes(y = means, color = TX), size = 5, 
+             position =position_dodge(width = 2), 
+             show.legend = T) +
+  scale_y_continuous(breaks = seq(0, 100, by = 10)) +
+  scale_x_continuous(breaks = seq(12, 24, by = 12)) +
+  labs(y = "Percent Closure") +
+  labs(x = "Hours Post-scratch") +
+  theme(plot.title = element_text(size = 28, face = "bold")) +
+  theme(axis.title.y = element_text(size = 22, face = "bold")) +
+  theme(axis.title.x = element_text(size = 22, face = "bold")) +
+  theme(axis.text.x = element_text(size = 20, color = "black")) +
+  theme(axis.text.y = element_text(size = 20, color = "black")) + 
+  theme(legend.text=element_text(size=18),
+        legend.title = element_text(size = 22, face = "bold")) +
+  theme(legend.justification = c(1, 0), legend.position = c(1, 0)) +
+  annotate("text",
+           x = 12.25,
+           y = 45,
+           label = "*", size = 12, fontface = 2) +
+  annotate("text",
+           x = 24,
+           y = 103,
+           label = "N.S.", size = 7, fontface = 2) +
+  scale_color_viridis(discrete = T)
+
+#ctrl, 6.25 R, 50 R
+data.ctrl <- scratch.data %>%
+  filter(TX == "Control")
+data6.25R <- scratch.data %>%
+  filter(TX == "6.25 R")
+data50R <- scratch.data %>%
+  filter(TX == "50 R")
+
+d8 <- rbind(data.ctrl, data6.25R, data50R)
+
+stats8 <- d8 %>% 
+  group_by(TX, Time_Point) %>%
+  summarise(
+    means = mean(Percent_Closed),
+    stderr = sd(Percent_Closed)/sqrt(n())) %>%
+  mutate(
+    lwr.err = means - stderr,
+    upr.err = means + stderr)
+
+ggplot(d8, aes(x = Time_Point)) +
+  theme_bw() +
+  geom_point(aes(y = Percent_Closed, color = TX), size = 3, alpha = 0.25,
+             position = position_dodge(width = 1)) +
+  geom_line(aes(y = fit, color = TX), size = 1) +
+  geom_errorbar(data = stats8, aes(ymin=lwr.err, ymax=upr.err, color = TX), 
+                width=0.75, position = position_dodge(width = 1), 
+                show.legend = F, size = 0.75) +
+  geom_point(data = stats8, aes(y = means, color = TX), size = 5, 
+             position =position_dodge(width = 1), 
+             show.legend = T) +
+  scale_y_continuous(breaks = seq(0, 100, by = 10)) +
+  scale_x_continuous(breaks = seq(12, 24, by = 12)) +
+  labs(y = "Percent Closure") +
+  labs(x = "Hours Post-scratch") +
+  theme(plot.title = element_text(size = 28, face = "bold")) +
+  theme(axis.title.y = element_text(size = 22, face = "bold")) +
+  theme(axis.title.x = element_text(size = 22, face = "bold")) +
+  theme(axis.text.x = element_text(size = 20, color = "black")) +
+  theme(axis.text.y = element_text(size = 20, color = "black")) + 
+  theme(legend.text=element_text(size=18),
+        legend.title = element_text(size = 22, face = "bold")) +
+  theme(legend.justification = c(1, 0), legend.position = c(1, 0)) +
+  annotate("text",
+           x = 24,
+           y = 103,
+           label = "N.S.", size = 7, fontface = 2) +
+  annotate("text",
+           x = 12.333,
+           y = 102,
+           label = "*", size = 12, fontface = 2)
+  scale_color_brewer(palette = "Dark2")
+
+#ctrl, 0.1 UN/6.25R, 1.0 UN/6.25R, and 10 UN/6.25R
+
+d9 <- rbind(data.ctrl, data0.1UN_6.25R, data1.0UN_6.25R, data10UN_6.25R)
+
+stats9 <- d9 %>% 
+  group_by(TX, Time_Point) %>%
+  summarise(
+    means = mean(Percent_Closed),
+    stderr = sd(Percent_Closed)/sqrt(n())) %>%
+  mutate(
+    lwr.err = means - stderr,
+    upr.err = means + stderr)
+
+ggplot(d9, aes(x = Time_Point)) +
+  theme_bw() +
+  geom_point(aes(y = Percent_Closed, color = TX), size = 3, alpha = 0.25,
+             position = position_dodge(width = 1)) +
+  geom_line(aes(y = fit, color = TX), size = 1) +
+  geom_errorbar(data = stats9, aes(ymin=lwr.err, ymax=upr.err, color = TX), 
+                width=0.75, position = position_dodge(width = 1), 
+                show.legend = F, size = 0.75) +
+  geom_point(data = stats9, aes(y = means, color = TX), size = 5, 
+             position =position_dodge(width = 1), 
+             show.legend = T) +
+  scale_y_continuous(breaks = seq(0, 100, by = 10)) +
+  scale_x_continuous(breaks = seq(12, 24, by = 12)) +
+  labs(y = "Percent Closure") +
+  labs(x = "Hours Post-scratch") +
+  theme(plot.title = element_text(size = 28, face = "bold")) +
+  theme(axis.title.y = element_text(size = 22, face = "bold")) +
+  theme(axis.title.x = element_text(size = 22, face = "bold")) +
+  theme(axis.text.x = element_text(size = 20, color = "black")) +
+  theme(axis.text.y = element_text(size = 20, color = "black")) + 
+  theme(legend.text=element_text(size=18),
+        legend.title = element_text(size = 22, face = "bold")) +
+  theme(legend.justification = c(1, 0), legend.position = c(1, 0)) +
+  annotate("text",
+           x = 12,
+           y = 85,
+           label = "N.S.", size = 7, fontface = 2) +
+  annotate("text",
+           x = 24,
+           y = 103,
+           label = "N.S.", size = 7, fontface = 2) +
+  scale_color_brewer(palette = "Dark2")
+
+#ctrl, 0.1 UN/50R, 1.0 UN/6.25R, and 10 UN/6.25R
+#this one is redunant and obvious. Nonetheless, I graphed it
+d10 <- rbind(data.ctrl, data0.1UN_50R, data1.0UN_50R, data10UN_50R)
+
+stats10 <- d10 %>% 
+  group_by(TX, Time_Point) %>%
+  summarise(
+    means = mean(Percent_Closed),
+    stderr = sd(Percent_Closed)/sqrt(n())) %>%
+  mutate(
+    lwr.err = means - stderr,
+    upr.err = means + stderr)
+
+ggplot(d10, aes(x = Time_Point)) +
+  theme_bw() +
+  geom_point(aes(y = Percent_Closed, color = TX), size = 3, alpha = 0.25,
+             position = position_dodge(width = 1)) +
+  geom_line(aes(y = fit, color = TX), size = 1) +
+  geom_errorbar(data = stats10, aes(ymin=lwr.err, ymax=upr.err, color = TX), 
+                width=0.75, position = position_dodge(width = 1), 
+                show.legend = F, size = 0.75) +
+  geom_point(data = stats10, aes(y = means, color = TX), size = 5, 
+             position =position_dodge(width = 1), 
+             show.legend = T) +
+  scale_y_continuous(breaks = seq(0, 100, by = 10)) +
+  scale_x_continuous(breaks = seq(12, 24, by = 12)) +
+  labs(y = "Percent Closure") +
+  labs(x = "Hours Post-scratch") +
+  theme(plot.title = element_text(size = 28, face = "bold")) +
+  theme(axis.title.y = element_text(size = 22, face = "bold")) +
+  theme(axis.title.x = element_text(size = 22, face = "bold")) +
+  theme(axis.text.x = element_text(size = 20, color = "black")) +
+  theme(axis.text.y = element_text(size = 20, color = "black")) + 
+  theme(legend.text=element_text(size=18),
+        legend.title = element_text(size = 22, face = "bold")) +
+  theme(legend.justification = c(1, 0), legend.position = c(1, 0)) +
+  annotate("text",
+           x = 12,
+           y = 85,
+           label = "N.S.", size = 7, fontface = 2) +
+  annotate("text",
+           x = 24,
+           y = 103,
+           label = "N.S.", size = 7, fontface = 2) +
+  scale_color_brewer(palette = "Dark2")
+
+###################
+#####################
+#################
+#CORRELATION
+################
+#################
+#################
+
+melted.data <- raw.data[,-c(1,4,5,6,8)] %>%
+dcast(Time_Point + Sample ~ TX,  value.var = "Percent_Closed") 
+
+cor(x = melted.data[,1], y = melted.data[,3:12], method = "pearson")
+var(x = melted.data[,1], y = melted.data[,3:12])
+
+
+
+#############
+###############PARTIAL COEFFICIENT OF DETERMINATION
+###############
+library(asbio)
+m0 <- lm(Percent_Closed ~ Time_Point, data = raw.data)
+summary(m0)
+partial.R2(nested.lm = m0,
+           ref.lm = m2)
+
+partial.R2(nested.lm = m0,
+           ref.lm = m1)
